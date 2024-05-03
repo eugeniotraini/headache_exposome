@@ -1,2 +1,76 @@
 # headache_exposome
 Analysis of the headache urban exposome of AMIGO
+
+### boruta version 1 ###
+library(Boruta)
+library(dplyr)
+library(prospectr)
+library(ranger)
+library(tibble)
+library(caTools)
+
+# Set the seed for reproducibility
+set.seed(06112023)
+
+# Set the number of iterations
+num_iterations <- 250
+
+# Create empty lists to store results
+confirmed_features_list <- list()
+rejected_features_list <- list()
+tentative_features_list <- list()
+feature_importance_list <- list()
+summary_list <- list()
+
+# Start with RF in iterations 
+for (i in 1:num_iterations) {
+  
+  train_index_12 <- sample(1:nrow(amigo5_train_1), nrow(amigo5_train_2) * 0.85, replace = FALSE)
+  train_index_22 <- sample(1:nrow(amigo5_train_2), nrow(amigo5_train_2) * 0.85, replace = FALSE)
+  
+  amigo5_train_1_iter <- amigo5_train_1[train_index_12, ] 
+  amigo5_train_2_iter <- amigo5_train_2[train_index_22, ] 
+  
+  amigo5_train_12_iter <- rbind(amigo5_train_1_iter,amigo5_train_2_iter) # n=649 weekly headache NO & n=649 weekly headache YES (i.e. balanced dataset in terms of number of cases - no longer imbalanced classes)
+  
+  #mtry = square root of the number of all attributes (default - see Boruta package getImpLegacyRf)
+  boruta_mod <- Boruta(x = amigo5_train_12_iter[, -2],
+                       y = amigo5_train_12_iter$weekly_head_fup,
+                       num.trees = 1000,
+                       pValue = 0.01,
+                       mcAdj = TRUE,
+                       maxRuns = 500,
+                       doTrace = 3,
+                       holdHistory = TRUE,
+                       classification = TRUE,
+                       respect.unordered.factors = TRUE #https://academic-oup-com.proxy.library.uu.nl/jcem/advance-article/doi/10.1210/clinem/dgad469/7240446
+                                                        #https://win-vector.com/2016/05/30/on-ranger-respect-unordered-factors/
+  )
+    
+  # Get the confirmed, rejected, and tentative features
+  confirmed_features <- getSelectedAttributes(boruta_mod, withTentative = FALSE)
+  tentative_features <- row.names(as.data.frame(boruta_mod$finalDecision[boruta_mod$finalDecision=='Tentative']))
+  rejected_features <- row.names(as.data.frame(boruta_mod$finalDecision[boruta_mod$finalDecision=='Rejected']))
+  
+  # Get the feature importance
+  feature_importance <- boruta_mod$ImpHistory
+  
+  # Get results summary
+  summary <- attStats(boruta_mod)
+  summary$meanImp <- NULL
+  summary$medianImp <- NULL
+  summary$minImp <- NULL
+  summary$maxImp <- NULL
+  summary$normHits <- NULL
+  
+  
+  # Store the results in the lists
+  confirmed_features_list[[i]] <- confirmed_features
+  rejected_features_list[[i]] <- rejected_features
+  tentative_features_list[[i]] <- tentative_features
+  
+  feature_importance_list[[i]] <- feature_importance
+  
+  summary_list[[i]] <- summary
+  
+}
